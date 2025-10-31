@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HSK: доска визуализации</title>
+  <style>
+    :root{
+      --bg:#0f1220;
+      --card:#171b2e;
+      --muted:#9aa3b2;
+      --grid-gap:6px;
+      --radius:12px;
+      --known:#2e7d32;
+      --unknown:#394264;
+      --level1:#f9d264; --level2:#5db4c7; --level3:#f58052;
+      --level4:#dd4b4b; --level5:#274d7c; --level6:#6a4c9c;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      background:linear-gradient(180deg,#0b0e1a,#0f1220 40%);
+      color:#e7ecf3;
+      -webkit-font-smoothing:antialiased;
+      padding: clamp(12px, 2vw, 20px);
+    }
+    header{
+      display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:14px;
+    }
+    h1{font-size:clamp(22px,4vw,30px); margin:0; letter-spacing:.5px}
+    .bar{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+    .pill{
+      background:var(--card); color:#fff; border:1px solid #232949; border-radius:999px;
+      padding:8px 12px; display:inline-flex; align-items:center; gap:8px; line-height:1;
+    }
+    .pill input, .pill select{background:transparent; border:0; color:#fff; outline:0}
+    button{
+      background:#2a3160; border:1px solid #3c4480; padding:10px 14px; border-radius:10px; color:#fff; cursor:pointer;
+    }
+    button:hover{filter:brightness(1.1)}
+    .legend{display:flex; gap:8px; flex-wrap:wrap}
+    .badge{display:flex; align-items:center; gap:6px; background:#1b2040; border:1px solid #283062; border-radius:999px; padding:6px 10px; font-size:12px; color:#cfd6e6}
+    .dot{width:12px; height:12px; border-radius:3px}
+    .grid{
+      display:grid; gap:var(--grid-gap);
+      grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
+      align-items:stretch;
+    }
+    .cell{
+      aspect-ratio:1/1; display:flex; align-items:center; justify-content:center;
+      background:var(--unknown);
+      border:1px solid #46507a;
+      border-radius:10px; font-size:20px; user-select:none; position:relative; cursor:pointer;
+      transition: transform .06s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;
+      box-shadow: 0 0 0 0 rgba(0,0,0,0);
+    }
+    .cell:active{ transform: scale(.98) }
+    .cell[data-known="1"]{ background:var(--known); border-color:#49a34e }
+    .cell[data-level="1"]{ --unknown:var(--level1) }
+    .cell[data-level="2"]{ --unknown:var(--level2) }
+    .cell[data-level="3"]{ --unknown:var(--level3) }
+    .cell[data-level="4"]{ --unknown:var(--level4) }
+    .cell[data-level="5"]{ --unknown:var(--level5) }
+    .cell[data-level="6"]{ --unknown:var(--level6) }
+    .toolbar{display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 14px}
+    .stats{font-size:14px; color:var(--muted)}
+    dialog::backdrop{background:rgba(5,8,20,.5); backdrop-filter: blur(2px)}
+    dialog{
+      border:1px solid #2f3869; background:var(--card); color:#fff; border-radius:16px;
+      padding:14px; max-width:480px; width:calc(100% - 32px);
+      box-shadow: 0 10px 30px rgba(0,0,0,.4);
+    }
+    .sheet-header{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px}
+    .han{font-size:48px; line-height:1}
+    .meta{display:flex; flex-direction:column; gap:4px; color:#cfd6e6}
+    .meta b{color:#fff}
+    .actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+    .sr-only{position:absolute; left:-9999px}
+    .empty{padding:30px; text-align:center; color:#9aa3b2; border:1px dashed #303760; border-radius:12px}
+    .footer-note{margin-top:12px; color:#9aa3b2; font-size:12px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HSK: доска визуализации</h1>
+    <div class="bar">
+      <label class="pill">Уровень:
+        <select id="levelFilter">
+          <option value="all">все</option>
+          <option value="1">HSK1</option>
+          <option value="2">HSK2</option>
+          <option value="3">HSK3</option>
+          <option value="4">HSK4</option>
+          <option value="5">HSK5</option>
+          <option value="6">HSK6</option>
+        </select>
+      </label>
+      <label class="pill">Поиск:
+        <input id="searchBox" placeholder="汉字 / pinyin / перевод" />
+      </label>
+      <button id="importCsvBtn">Импорт CSV</button>
+      <button id="exportBtn">Экспорт прогресса</button>
+      <button id="resetBtn" title="Сбросить отметки">Сброс</button>
+    </div>
+  </header>
+
+  <div class="legend">
+    <span class="badge"><span class="dot" style="background:var(--level1)"></span>HSK1</span>
+    <span class="badge"><span class="dot" style="background:var(--level2)"></span>HSK2</span>
+    <span class="badge"><span class="dot" style="background:var(--level3)"></span>HSK3</span>
+    <span class="badge"><span class="dot" style="background:var(--level4)"></span>HSK4</span>
+    <span class="badge"><span class="dot" style="background:var(--level5)"></span>HSK5</span>
+    <span class="badge"><span class="dot" style="background:var(--level6)"></span>HSK6</span>
+  </div>
+
+  <div class="toolbar stats" id="stats"></div>
+
+  <div id="grid" class="grid" role="list"></div>
+
+  <dialog id="sheet">
+    <div class="sheet-header">
+      <div class="han" id="d-han">好</div>
+      <div class="meta">
+        <div><b>Пиньинь:</b> <span id="d-py"></span></div>
+        <div><b>Перевод:</b> <span id="d-tr"></span></div>
+        <div><b>Уровень:</b> <span id="d-level"></span></div>
+      </div>
+      <button id="closeBtn" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="actions">
+      <button id="toggleKnownBtn">Отметить как выучено</button>
+      <button id="copyBtn">Скопировать</button>
+    </div>
+  </dialog>
+
+  <input type="file" id="fileInput" class="sr-only" accept=".csv,text/csv" />
+
+  <p class="footer-note">
+    Подсказка: нажми на любой иероглиф, чтобы открыть карточку. Отметки сохраняются на устройстве (localStorage).
+  </p>
+
+<script>
+// --- Data loading ---
+const sampleCSV = `level,han,pinyin,ru
+1,我,wǒ,я
+1,你,nǐ,ты
+1,他,tā,он
+1,她,tā,она
+1,好,hǎo,хорошо
+1,是,shì,быть
+1,不,bù,нет/не
+1,了,le,модальная частица
+1,在,zài,находиться
+1,有,yǒu,иметь
+2,会,huì,уметь
+2,这,zhè,это
+2,那,nà,то
+2,哪,nǎ,какой
+2,谁,shéi,кто
+3,想,xiǎng,хотеть/думать
+3,看,kàn,смотреть
+3,吃,chī,есть
+4,知道,zhīdao,знать
+5,爱情,àiqíng,любовь
+6,哲学,zhéxué,философия`;
+
+// Parse CSV to array of records
+function parseCSV(text){
+  const lines = text.trim().split(/\r?\n/);
+  const headers = lines.shift().split(",").map(s=>s.trim());
+  return lines.map(line=>{
+    const parts = []; let current=""; let inQuotes=false;
+    for (let i=0;i<line.length;i++){
+      const ch=line[i];
+      if(ch==='\"'){ inQuotes=!inQuotes; continue; }
+      if(ch===',' && !inQuotes){ parts.push(current); current=""; continue; }
+      current+=ch;
+    }
+    parts.push(current);
+    const obj={};
+    headers.forEach((h,idx)=>obj[h]= (parts[idx]||"").trim());
+    obj.level = String(obj.level||"").trim();
+    return obj;
+  });
+}
+
+const STATE_KEY = "hsk_known_v1";
+const state = {
+  known: new Set(JSON.parse(localStorage.getItem(STATE_KEY) || "[]"))
+};
+
+let data = [];
+let filtered = [];
+
+// Try to fetch external hsk.csv; otherwise use sample
+async function loadData(){
+  try{
+    const r = await fetch("hsk.csv", {cache:"no-store"});
+    if(r.ok){
+      const t = await r.text();
+      data = parseCSV(t);
+    } else {
+      data = parseCSV(sampleCSV);
+    }
+  }catch(e){
+    data = parseCSV(sampleCSV);
+  }
+  render();
+}
+loadData();
+
+// --- UI & interactions ---
+const grid = document.getElementById("grid");
+const stats = document.getElementById("stats");
+const levelFilter = document.getElementById("levelFilter");
+const searchBox = document.getElementById("searchBox");
+const sheet = document.getElementById("sheet");
+const dHan = document.getElementById("d-han");
+const dPy = document.getElementById("d-py");
+const dTr = document.getElementById("d-tr");
+const dLevel = document.getElementById("d-level");
+const toggleKnownBtn = document.getElementById("toggleKnownBtn");
+const copyBtn = document.getElementById("copyBtn");
+const closeBtn = document.getElementById("closeBtn");
+
+let currentItem = null;
+
+function render(){
+  const level = levelFilter.value;
+  const q = (searchBox.value||"").toLowerCase().trim();
+  filtered = data.filter(r=>(level==="all" || r.level===level) && (
+    !q || r.han.includes(q) || (r.pinyin||"").toLowerCase().includes(q) || (r.ru||"").toLowerCase().includes(q)
+  ));
+
+  grid.innerHTML = "";
+  filtered.forEach((r,idx)=>{
+    const div = document.createElement("div");
+    div.className="cell";
+    div.setAttribute("role","listitem");
+    div.dataset.level = r.level || "1";
+    div.dataset.key = r.han;
+    if(state.known.has(r.han)) div.dataset.known="1";
+    div.textContent = r.han;
+    div.addEventListener("click", ()=> openSheet(r));
+    grid.appendChild(div);
+  });
+
+  // Stats
+  const perLevel = [1,2,3,4,5,6].map(l=>{
+    const total = data.filter(r=>String(r.level)===String(l)).length;
+    const known = data.filter(r=>String(r.level)===String(l) && state.known.has(r.han)).length;
+    return {l,total,known};
+  });
+  const totalAll = data.length;
+  const knownAll = data.filter(r=>state.known.has(r.han)).length;
+  stats.innerHTML = `Всего: <b>${knownAll}/${totalAll}</b> • ` + perLevel.map(x=>`HSK${x.l}: ${x.known}/${x.total}`).join(" • ");
+}
+
+function openSheet(r){
+  currentItem = r;
+  dHan.textContent = r.han;
+  dPy.textContent = (r.pinyin && r.pinyin.trim()) ? r.pinyin : "—";
+  dTr.textContent = (r.ru && r.ru.trim()) ? r.ru : "—";
+  dLevel.textContent = r.level || "";
+  toggleKnownBtn.textContent = state.known.has(r.han) ? "Снять отметку" : "Отметить как выучено";
+  if(!sheet.open) sheet.showModal();
+}
+
+toggleKnownBtn.addEventListener("click", ()=>{
+  if(!currentItem) return;
+  const key = currentItem.han;
+  if(state.known.has(key)) state.known.delete(key);
+  else state.known.add(key);
+  localStorage.setItem(STATE_KEY, JSON.stringify([...state.known]));
+  sheet.close();
+  render();
+});
+copyBtn.addEventListener("click", ()=>{
+  if(!currentItem) return;
+  const t = `${currentItem.han} — ${currentItem.pinyin||""} — ${currentItem.ru||""} (HSK${currentItem.level||""})`;
+  navigator.clipboard.writeText(t).catch(()=>{});
+});
+closeBtn.addEventListener("click", ()=> sheet.close());
+
+// Filters
+levelFilter.addEventListener("change", render);
+searchBox.addEventListener("input", render);
+
+// Import/Export/Reset
+document.getElementById("importCsvBtn").addEventListener("click", ()=> fileInput.click());
+const fileInput = document.getElementById("fileInput");
+fileInput.addEventListener("change", (e)=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      data = parseCSV(reader.result);
+      localStorage.setItem(STATE_KEY, JSON.stringify([])); // optional clear marks on new deck
+      state.known = new Set();
+      render();
+      alert("Импортировано!");
+    }catch(err){
+      alert("Не удалось импортировать CSV");
+    }
+  };
+  reader.readAsText(f, "utf-8");
+});
+
+document.getElementById("exportBtn").addEventListener("click", ()=>{
+  const payload = { known:[...state.known], ts: Date.now() };
+  const blob = new Blob([JSON.stringify(payload,null,2)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "hsk-progress.json";
+  a.click();
+});
+
+document.getElementById("resetBtn").addEventListener("click", ()=>{
+  if(confirm("Сбросить все отметки?")){
+    state.known = new Set();
+    localStorage.removeItem(STATE_KEY);
+    render();
+  }
+});
+</script>
+</body>
+</html>
